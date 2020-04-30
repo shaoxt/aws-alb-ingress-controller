@@ -3,6 +3,7 @@ package tg
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/elbv2"
@@ -304,27 +305,70 @@ func (c *targetHealthController) ingressTargetHealthReconciliationInterval(servi
 // PodConditionTypeForIngressBackend returns the PodConditionType that is associated with the given ingress and backend
 func podConditionTypeForIngressBackend(ingress *extensions.Ingress, backend *extensions.IngressBackend) api.PodConditionType {
 	return api.PodConditionType(fmt.Sprintf(
-		"target-health.alb.ingress.k8s.aws/%s_%s_%s",
+		ConditionTypeTargetHealthPrefix+"%s",
 		ingress.Name,
-		backend.ServiceName,
-		backend.ServicePort.String(),
 	))
 }
 
 // PodHasReadinessGate returns true if the given pod has a readinessGate with the given conditionType
 func podHasReadinessGate(pod *api.Pod, conditionType api.PodConditionType) bool {
+	var lenPrefix = len(ConditionTypeTargetHealthPrefix)
+	ingressName := ""
+	strConditionType := string(conditionType)
+	if strings.HasPrefix(strConditionType, ConditionTypeTargetHealthPrefix) {
+		ingressName = strConditionType[lenPrefix:]
+	}
+
 	for _, rg := range pod.Spec.ReadinessGates {
 		if rg.ConditionType == conditionType {
 			return true
+		}
+
+		//In version 1.1.6, the conditionType is "ingress_service_port"
+		//But it hits the 63 characters limitation in k8s, it could be ingress only
+		conditionDotType := string(rg.ConditionType)
+		if strings.HasPrefix(conditionDotType, ConditionTypeTargetHealthPrefix) {
+			suffix := conditionDotType[lenPrefix:]
+			if len(suffix) > 0 {
+				var array = strings.Split(suffix, "_")
+				if len(array) == 3 {
+					if ingressName == array[0] {
+						//Match ingress only
+						return true
+					}
+				}
+			}
 		}
 	}
 	return false
 }
 
 func podConditionForReadinessGate(pod *api.Pod, conditionType api.PodConditionType) (int, *api.PodCondition) {
+	var lenPrefix = len(ConditionTypeTargetHealthPrefix)
+	ingressName := ""
+	strConditionType := string(conditionType)
+	if strings.HasPrefix(strConditionType, ConditionTypeTargetHealthPrefix) {
+		ingressName = strConditionType[lenPrefix:]
+	}
+
 	for i, condition := range pod.Status.Conditions {
 		if condition.Type == conditionType {
 			return i, &condition
+		}
+		//In version 1.1.6, the conditionType is "ingress_service_port"
+		//But it hits the 63 characters limitation in k8s, it could be ingress only
+		conditionDotType := string(condition.Type)
+		if strings.HasPrefix(conditionDotType, ConditionTypeTargetHealthPrefix) {
+			suffix := conditionDotType[lenPrefix:]
+			if len(suffix) > 0 {
+				var array = strings.Split(suffix, "_")
+				if len(array) == 3 {
+					if ingressName == array[0] {
+						//Match ingress only
+						return i, &condition
+					}
+				}
+			}
 		}
 	}
 	return -1, nil

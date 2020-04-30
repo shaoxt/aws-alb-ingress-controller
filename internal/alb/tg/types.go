@@ -5,6 +5,8 @@ import (
 	extensions "k8s.io/api/extensions/v1beta1"
 )
 
+const ConditionTypeTargetHealthPrefix = "target-health.alb.ingress.k8s.aws/"
+
 // TargetGroup provides information about AWS targetGroup created.
 type TargetGroup struct {
 	Arn        string
